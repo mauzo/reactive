@@ -2,11 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT License.
 // See the LICENSE file in the project root for more information. 
 
-using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq.Buffering;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,7 +20,7 @@ namespace System.Linq
         /// <param name="buffers">Buffer provider to use to buffer the Observable.</param>
         /// <returns>The async-enumerable sequence whose elements are pulled from the given observable sequence.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
-        public static IAsyncEnumerable<TSource> ToAsyncEnumerable<TSource>(this IObservable<TSource> source, IBufferProvider<TSource> buffers)
+        public static IAsyncEnumerable<TSource> ToAsyncEnumerable<TSource>(this IObservable<TSource> source, Func<IProducerConsumerCollection<TSource>> buffers)
         {
             if (source == null)
                 throw Error.ArgumentNull(nameof(source));
@@ -38,12 +36,12 @@ namespace System.Linq
         /// <returns>The async-enumerable sequence whose elements are pulled from the given observable sequence.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
         public static IAsyncEnumerable<TSource> ToAsyncEnumerable<TSource>(this IObservable<TSource> source)
-            => source.ToAsyncEnumerable(BufferProvider.Infinite<TSource>());
+            => source.ToAsyncEnumerable(() => new ConcurrentQueue<TSource>());
         
         private sealed class ObservableAsyncEnumerable<TSource> : AsyncIterator<TSource>, IObserver<TSource>
         {
             private readonly IObservable<TSource> _source;
-            private readonly IBufferProvider<TSource> _buffers;
+            private readonly Func<IProducerConsumerCollection<TSource>> _buffers;
 
             private static int _next_id = 0;
             private readonly int _id = _next_id++;
@@ -54,7 +52,7 @@ namespace System.Linq
             private IDisposable? _subscription;
             private CancellationTokenRegistration _ctr;
 
-            public ObservableAsyncEnumerable(IObservable<TSource> source, IBufferProvider<TSource> buffers)
+            public ObservableAsyncEnumerable(IObservable<TSource> source, Func<IProducerConsumerCollection<TSource>> buffers)
             {
                 _source = source;
                 _buffers = buffers;
@@ -68,6 +66,8 @@ namespace System.Linq
 
                 return base.DisposeAsync();
             }
+
+            private void Log (string msg) => Debug.WriteLine($"OAE [{_id}]: {msg}");
 
             protected override async ValueTask<bool> MoveNextCore()
             {
@@ -96,7 +96,8 @@ namespace System.Linq
                         //         the dual treatment of Subscribe/GetEnumerator.
                         //
 
-                        _values = _buffers.GetBuffer();
+                        Log("Create buffer");
+                        _values = _buffers();
                         _subscription = _source.Subscribe(this);
                         _ctr = _cancellationToken.Register(OnCanceled, state: null);
                         _state = AsyncIteratorState.Iterating;
@@ -109,7 +110,7 @@ namespace System.Linq
 
                             if (_values!.TryTake(out _current!))
                             {
-                                Debug.WriteLine($"OAE [{_id}]: pulled {_current}");
+                                Log($"pulled {_current}");
                                 return true;
                             }
                             else if (completed)
@@ -152,7 +153,7 @@ namespace System.Linq
 
             public void OnNext(TSource value)
             {
-                Debug.WriteLine($"OAE [{_id}]: pushing {value}");
+                Log($"pushing {value}");
                 _values?.TryAdd(value);
 
                 OnNotification();

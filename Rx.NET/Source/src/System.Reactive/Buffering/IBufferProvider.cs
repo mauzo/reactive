@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace System.Linq.Buffering
+namespace System.Reactive.Buffering
 {
     public interface IBufferProvider<TElement>
     {
