@@ -9,19 +9,21 @@ namespace System.Reactive.Buffering
 {
     internal class OverflowBufferProvider<T> : BufferProvider<T>
     {
-        private int _limit;
+        private BufferProvider<T> _source;
 
         private Subject<IObservable<T>> _overflow = new();
 
         public override IObservable<IObservable<T>> Overflow
             => IfNotDisposed(_overflow).AsObservable();
         
-        public OverflowBufferProvider (int limit) => _limit = limit;
+        public OverflowBufferProvider (BufferProvider<T> source)
+            => _source = source;
 
         public override IProducerConsumerCollection<T> GetBuffer()
         {
             ThrowIfDisposed();
-            var buf = new OverflowBuffer<T>(_limit);
+            var queue = _source.GetBuffer();
+            var buf = new OverflowBuffer<T>(queue);
             _overflow.OnNext(buf.Overflow);
             return buf;
         }

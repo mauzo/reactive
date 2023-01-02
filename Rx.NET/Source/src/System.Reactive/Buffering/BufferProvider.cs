@@ -9,6 +9,7 @@ namespace System.Reactive.Buffering
             => () => new ConcurrentQueue<T>();
 
         public static BufferProvider<T> LimitByCount<T>(int limit)
-            => new OverflowBufferProvider<T>(limit);
+            => new OverflowBufferProvider<T>(
+                new LimitedBufferProvider<T>(limit));
     }
 }

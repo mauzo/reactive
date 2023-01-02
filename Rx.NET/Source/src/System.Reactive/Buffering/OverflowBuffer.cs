@@ -6,9 +6,10 @@ using System.Threading;
 
 namespace System.Reactive.Buffering
 {
-    internal class OverflowBuffer<T> : ConcurrentQueue<T>, IProducerConsumerCollection<T>, IDisposable
+    internal class OverflowBuffer<T> : IBufferOperator<T>, IDisposable
     {
-        private int _limit;
+        private IProducerConsumerCollection<T> _queue;
+        IProducerConsumerCollection<T> IBufferOperator<T>.Source => _queue;
 
         private static int _next_id = 0;
         private readonly int _id = _next_id++;
@@ -22,24 +23,23 @@ namespace System.Reactive.Buffering
 
         private void Log(string msg) => Debug.WriteLine($"OB [{_id}]: {msg}");
 
-        public OverflowBuffer (int limit)
+        public OverflowBuffer (IProducerConsumerCollection<T> queue)
         {
             Log("new");
-            _limit = limit;
+            _queue = queue;
         }
 
-        bool IProducerConsumerCollection<T>.TryAdd (T item)
+        public bool TryAdd (T item)
         {
             if (IsDisposed) return false;
 
-            /* We rely on the Rx protocol to ensure there is no race
-             * here. If we do race the buffer still will not grow
-             * infinitely, so it's not a huge problem. */
-            if (Count < _limit) {
-                Log($"enqueue {item}, count {Count}");
-                Enqueue(item);
+            /* XXX There is a race here: we can become disposed at this
+             * point and the queued item will not be unqueued until we
+             * are GCd. We may also end up passing the item to a
+             * disposed Subject. We can only avoid this by locking. */
+
+            if (_queue.TryAdd(item))
                 return true;
-            }
             
             /* We have 'successfully' queued this item by passing it
              * to the overflow handler. */
@@ -48,16 +48,13 @@ namespace System.Reactive.Buffering
             return true;
         }
 
-        bool IProducerConsumerCollection<T>.TryTake (out T item)
+        public bool TryTake (out T item)
         {
             if (IsDisposed) {
                 item = default(T);
                 return false;
             }
-
-            var ok = TryDequeue(out item);
-            Log($"dequeue {item}");
-            return ok;
+            return _queue.TryTake(out item);
         }
 
         public void Dispose ()
@@ -66,7 +63,7 @@ namespace System.Reactive.Buffering
                 return;
 
             Log($"dispose");
-            while (TryDequeue(out T _)) { }
+            while (TryTake(out T _)) { }
             _overflow.OnCompleted();
             _overflow.Dispose();
         }
