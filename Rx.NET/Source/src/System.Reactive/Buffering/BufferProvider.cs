@@ -8,7 +8,7 @@ namespace System.Reactive.Buffering
         public static Func<IProducerConsumerCollection<T>> Infinite<T>()
             => () => new ConcurrentQueue<T>();
 
-        public static IOverflowBufferProvider<T> Limit<T>(int limit)
-            => new OverflowBufferProvider<T>(limit);
+        public static BufferProvider<T> Limit<T>(int limit)
+            => new BufferProvider<T>(limit);
     }
 }
