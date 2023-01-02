@@ -60,11 +60,11 @@ namespace System.Linq
 
             public override AsyncIteratorBase<TSource> Clone() => new ObservableAsyncEnumerable<TSource>(_source, _buffers);
 
-            public override ValueTask DisposeAsync()
+            public override async ValueTask DisposeAsync()
             {
                 Dispose();
-
-                return base.DisposeAsync();
+                await DisposeValues();
+                await base.DisposeAsync();
             }
 
             private void Log (string msg) => Debug.WriteLine($"OAE [{_id}]: {msg}");
@@ -188,11 +188,21 @@ namespace System.Linq
                 _ctr.Dispose();
                 DisposeSubscription();
 
-                _values = null;
                 _error = null;
             }
 
             private void DisposeSubscription() => Interlocked.Exchange(ref _subscription, null)?.Dispose();
+
+            private async ValueTask DisposeValues()
+            {
+                var vals = Interlocked.Exchange(ref _values, null);
+                if (vals == null)
+                    return;
+                else if (vals is IAsyncDisposable iad)
+                    await iad.DisposeAsync();
+                else if (vals is IDisposable id)
+                    id.Dispose();
+            }
 
             private void OnCanceled(object? state)
             {
