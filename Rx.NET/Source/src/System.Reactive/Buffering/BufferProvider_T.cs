@@ -1,45 +1,49 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using System.Threading;
-using System.Threading.Tasks;
+
+/* IDisposable implementation warnings */
+#pragma warning disable CA1063, CA1816
 
 namespace System.Reactive.Buffering
 {
-    public class BufferProvider<T> : IDisposable
+    public abstract class BufferProvider<T> : IDisposable
     {
-        private int _limit;
-
         private int _disposed = 0;
-        private Subject<IObservable<T>> _overflow = new();
 
-        private bool IsDisposed => Interlocked.CompareExchange(ref _disposed, 0, 0) == 1;
+        /* I'm not entirely sure this cmpxchg is necessary; I don't know
+         * if a plain read can anticipate an Interlocked.Exchange on
+         * another thread. */
+        public bool IsDisposed => Interlocked.CompareExchange(ref _disposed, 0, 0) == 1;
 
-        public static implicit operator Func<IProducerConsumerCollection<T>>(BufferProvider<T> value)
-            => value.GetBuffer;
+        public virtual IObservable<IObservable<T>> Overflow => Observable.Empty<IObservable<T>>();
 
-        public IObservable<IObservable<T>> Overflow => _overflow?.AsObservable();
-        
-        public BufferProvider (int limit) => _limit = limit;
+        public Func<IProducerConsumerCollection<T>> ToFunc() => GetBuffer;
+        public static implicit operator Func<IProducerConsumerCollection<T>>? (BufferProvider<T> value)
+            => value?.ToFunc();
 
-        public IProducerConsumerCollection<T> GetBuffer()
-        {
-            if (IsDisposed)
-                throw new ObjectDisposedException("buffer provider");
-
-            var buf = new OverflowBuffer<T>(_limit);
-            _overflow.OnNext(buf.Overflow);
-            return buf;
-        }
+        public abstract IProducerConsumerCollection<T> GetBuffer();
 
         public void Dispose ()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 1)
                 return;
-            Debug.WriteLine("OBP dispose");
-            _overflow.OnCompleted();
-            _overflow = null;
+            DisposeManaged();
+        }
+
+        protected virtual void DisposeManaged () { }
+
+        protected void ThrowIfDisposed ()
+        {
+            if (IsDisposed)
+                throw new ObjectDisposedException(GetType().Name);
+        }
+
+        protected TValue IfNotDisposed<TValue> (TValue value)
+        {
+            ThrowIfDisposed();
+            return value;
         }
     }
 }
+

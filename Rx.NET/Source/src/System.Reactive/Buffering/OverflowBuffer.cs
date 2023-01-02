@@ -18,7 +18,7 @@ namespace System.Reactive.Buffering
 
         private bool IsDisposed => Interlocked.CompareExchange(ref _disposed, 0, 0) == 1;
 
-        public IObservable<T> Overflow => _overflow.AsObservable();
+        public IObservable<T> Overflow => IfNotDisposed(_overflow).AsObservable();
 
         private void Log(string msg) => Debug.WriteLine($"OB [{_id}]: {msg}");
 
@@ -67,8 +67,15 @@ namespace System.Reactive.Buffering
 
             Log($"dispose");
             while (TryDequeue(out T _)) { }
-            _overflow?.OnCompleted();
-            _overflow = null;
+            _overflow.OnCompleted();
+            _overflow.Dispose();
+        }
+
+        private TValue IfNotDisposed<TValue> (TValue value)
+        {
+            if (IsDisposed)
+                throw new ObjectDisposedException("OverflowBuffer");
+            return value;
         }
     }
 }
